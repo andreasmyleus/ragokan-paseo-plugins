@@ -1,7 +1,7 @@
 import type { PluginButtonContentProps, PluginButtonRegistration, PluginClientContext } from "@getpaseo/plugin/client";
 import { Icon } from "./ui";
 import { useState, useSyncExternalStore, type ComponentType } from "react";
-import { Pressable, Text, View } from "react-native";
+import { AppState, Pressable, Text, View } from "react-native";
 import { listMcps, PROVIDERS, setMcp, type Mcp, type Provider } from "../shared/rpc";
 
 interface TrackedAgent {
@@ -16,7 +16,8 @@ const isProvider = (provider: string): provider is Provider => (PROVIDERS as rea
 
 type Status = { kind: "reloading" } | { kind: "failed"; error: string };
 
-const POLL_MS = 15_000;
+// Each Codex read spawns `codex app-server`, so a background window must not poll and a visible one polls slowly.
+const POLL_MS = 60_000;
 
 /**
  * One "mcp (n)" composer pill per Claude or Codex agent. It opens a popover of that provider's MCP
@@ -221,12 +222,18 @@ export function contributePills(client: PluginClientContext): () => void {
     });
 
   // Picks up changes made elsewhere: the Manage MCP servers screen, Claude's own /mcp, another device.
-  const poll = setInterval(() => void refresh(), POLL_MS);
+  const poll = setInterval(() => {
+    if (AppState.currentState === "active") void refresh();
+  }, POLL_MS);
+  const appState = AppState.addEventListener("change", (state) => {
+    if (state === "active") void refresh();
+  });
 
   return () => {
     stopped = true;
     lifetime.abort();
     clearInterval(poll);
+    appState.remove();
     listeners.clear();
     for (const pill of pills.values()) pill.registration.remove();
     pills.clear();
